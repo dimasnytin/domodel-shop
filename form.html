@@ -1,0 +1,2576 @@
+<!--
+***************************************************************
+* Excel Data Entry Form
+* Version: 2.1
+* Copyright (c) 2025 Sven Bosau
+* 
+* Website: https://pythonandvba.com
+* Email: sven@pythonandvba.com
+* 
+* DISCLAIMER:
+* This software is provided "as is", without warranty of any kind,
+* express or implied. The author assumes no liability for any
+* damages or losses arising from the use of this software.
+* Use at your own risk.
+*
+* You are free to use, modify, and distribute this software
+* for personal or commercial use, provided you maintain
+* this copyright notice.
+*
+* THIRD-PARTY LIBRARIES:
+* - SheetJS Community Edition (Apache 2.0 License)
+*   https://sheetjs.com/
+*
+* CHANGELOG:
+* -----------------------------------------------------------------
+* Version 2.1 (2026-04-08)
+* - Added auto-save form progress to browser storage
+* - Added Reset Form button to clear all fields
+* - Fixed drag-and-drop breaking after adding multiple sections
+* -----------------------------------------------------------------
+* Version 2.0 (2026-04-02)
+* - Added collapsible/expandable sections with named headers
+* - Added conditional section visibility (show/hide based on field values)
+* - Simplified configuration with __FORM_SETTINGS_START__/__END__ markers
+*   for one-click download from the Form Builder
+* - Added getAllFields() helper for flattened field iteration
+* -----------------------------------------------------------------
+* Version 1.1 (2025-12-17)
+* - Fixed: Other sheets in the Excel file are now preserved when
+*   saving entries (previously all sheets except 'Entries' were deleted)
+* - Only the 'Entries' sheet is updated; other sheets remain intact
+*
+* KNOWN LIMITATIONS:
+* - Cell formatting (colors, fonts, borders) is not preserved in
+*   any sheet due to SheetJS library limitations
+* - Formulas are converted to their calculated values
+* - Charts, images, and conditional formatting are not preserved
+* - Workaround: Keep formatted reports in a separate Excel file
+*   that references the data file using external links
+* -----------------------------------------------------------------
+* Version 1.0 (2025-06-17)
+* - Initial release
+***************************************************************
+-->
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Excel Entry Form</title>
+    <link rel="icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZmlsbD0iIzIxNzM0NiIgZD0iTTE0LDJIMWEyLDIgMCAwLDAtMiwydjE2YTIsMiAwIDAsMCwyLDJoMTRhMiwyIDAgMCwwLDItMlV5YTIsMiAwIDAsMC0yLTJabTAsMThIMVY0aDE0Wm0yLTEyaDVhMiwyIDAgMCwwLDItMlV5YTIsMiAwIDAsMC0yLTJoLTV2NVptMCw0aDVhMiwyIDAgMCwwLDItMnYtMWEyLDIgMCAwLDAtMi0yaC01djVabTAsNGg1YTIsMiAwIDAsMCwyLTJ2LTFhMiwyIDAgMCwwLTItMmgtNXY1Wk0zLDdoNHYySDNabTAsMy41aDEwdjJIM1ptMCwzLjVoMTB2MkgzWiIvPjwvc3ZnPg==" type="image/svg+xml">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdn.jsdelivr.net/npm/daisyui@3.9.4/dist/full.min.css" rel="stylesheet" type="text/css" />
+    <script lang="javascript" src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+    <style>
+        /* Custom styles */
+        .input-error {
+            border-color: #f87171 !important; /* red-500 */
+        }
+        
+        .input-error:focus {
+            border-color: #f87171 !important; /* red-500 */
+            --tw-ring-color: rgba(248, 113, 113, 0.5) !important; /* red-500 with opacity */
+            box-shadow: 0 0 0 3px var(--tw-ring-color);
+        }
+        
+        
+        /* Custom scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        
+        ::-webkit-scrollbar-track {
+            background-color: #e5e7eb; /* bg-base-200 */
+            border-radius: 9999px; /* rounded-full */
+        }
+        
+        ::-webkit-scrollbar-thumb {
+            background-color: #d1d5db; /* bg-base-300 */
+            border-radius: 9999px; /* rounded-full */
+        }
+        
+        ::-webkit-scrollbar-thumb:hover {
+            background-color: rgba(0, 0, 0, 0.2); /* bg-base-content/20 */
+        }
+        
+        /* Text areas */
+        textarea {
+            white-space: pre-line;
+        }
+        
+        body {
+            min-height: 100vh;
+            padding: 1rem;
+        }
+    </style>
+</head>
+<body class="bg-base-200">
+    <div class="max-w-4xl mx-auto">
+        <div class="card bg-base-100 shadow-xl">
+            <div class="card-body">
+                <!-- Controls Section -->
+                <div class="flex justify-between items-center mb-4">
+                    <div class="flex items-center gap-3">
+                        <div id="spreadsheet-status" class="badge badge-outline">Нет подключения</div>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <button id="connect-btn" onclick="connectToSpreadsheet()" class="btn btn-sm btn-outline btn-primary">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+                            </svg>
+                            Установить подключение
+                        </button>
+                        <!-- <button onclick="openFormSettingsEditor()" class="btn btn-sm btn-outline" title="Edit Form Settings">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                            </svg>
+                            Form Settings
+                        </button> -->
+                        <button onclick="toggleTheme()" class="btn btn-sm btn-ghost btn-circle" title="Toggle Theme">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- Title Section -->
+                <div class="mb-4">
+                    <h1 class="text-3xl font-bold" id="form-title">Excel Entry Form</h1>
+                </div>
+                
+                <!-- Form description -->
+                <p id="form-description-text" class="text-base-content/70 mb-6">This form allows you to collect and manage entries in an Excel spreadsheet. Fill in the required fields marked with an asterisk (*) and click 'Add Entry' to save your data.</p>
+                
+                <!-- File location display -->
+                <div id="file-location-container" class="bg-base-200 p-3 rounded-lg mb-6 hidden">
+                    <div class="flex items-center gap-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-success" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        </svg>
+                        <span class="font-medium">File Location:</span>
+                        <span id="file-location-path" class="text-sm font-mono bg-base-300 px-2 py-1 rounded">Not selected</span>
+                    </div>
+                </div>
+                
+                <!-- Form -->
+                <div class="space-y-4 mb-6" id="form-fields-container">
+                    <!-- All fields will be inserted here dynamically -->
+                </div>
+                
+                <!-- Form Actions -->
+                <div class="flex flex-wrap gap-3 justify-between items-center mt-8">
+                    <div class="flex gap-2">
+                        <button onclick="addEntry()" class="btn btn-primary">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
+                                <path fill-rule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clip-rule="evenodd" />
+                            </svg>
+                            Добавить клиента
+                        </button>
+                        <button onclick="clearForm()" class="btn btn-ghost">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
+                            Очистить форму
+                        </button>
+                    </div>
+                    
+                    <!-- No Clear All button as per user request -->
+                </div>
+                
+                <!-- Search and Filter -->
+                <div class="flex justify-between items-center mb-6">
+                    <div class="flex items-center gap-3">
+                        <h2 class="text-xl font-semibold">Записи</h2>
+                        <button onclick="toggleEntriesVisibility()" class="btn btn-sm btn-ghost" id="toggle-entries-btn">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                            </svg>
+                            Скрыть записи
+                        </button>
+                    </div>
+                    <div class="relative">
+                        <input 
+                            type="text" 
+                            id="search-entries" 
+                            placeholder="Найти..." 
+                            class="input input-bordered w-64 pl-10"
+                            oninput="updateTable()"
+                        >
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-gray-400 absolute left-3 top-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                        </svg>
+                    </div>
+                </div>
+                
+                <!-- Entries Table -->
+                <div class="overflow-x-auto bg-base-100 rounded-lg shadow">
+                    <table class="table w-full">
+                        <thead>
+                            <tr>
+                                <!-- Table headers will be populated dynamically based on form settings -->
+                            </tr>
+                        </thead>
+                        <tbody id="entries-body" class="divide-y divide-base-200">
+                            <!-- Entries will be added here dynamically -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Footer with branding -->
+    <div class="mt-6 text-center text-xs text-base-content/50 pb-4">
+        <p class="flex flex-wrap justify-center gap-x-3 gap-y-1">
+            <span>Form created with</span>
+            <a href="https://pythonandvba.com/go/no-code-excel-data-entry-form-generator" class="link link-hover text-base-content/70 inline-flex items-center" target="_blank" rel="noopener noreferrer">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5 mr-1" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path>
+                    <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>
+                </svg>
+                Excel Form Generator
+            </a>
+            <a href="https://youtube.com/c/codingisfun" class="link link-hover text-base-content/70 inline-flex items-center" target="_blank" rel="noopener noreferrer">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5 mr-1" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M22.54 6.42a2.78 2.78 0 0 0-1.94-2C18.88 4 12 4 12 4s-6.88 0-8.6.46a2.78 2.78 0 0 0-1.94 2A29 29 0 0 0 1 11.75a29 29 0 0 0 .46 5.33A2.78 2.78 0 0 0 3.4 19c1.72.46 8.6.46 8.6.46s6.88 0 8.6-.46a2.78 2.78 0 0 0 1.94-2 29 29 0 0 0 .46-5.25 29 29 0 0 0-.46-5.33z"></path>
+                    <polygon points="9.75 15.02 15.5 11.75 9.75 8.48 9.75 15.02"></polygon>
+                </svg>
+                Coding Is Fun
+            </a>
+            <a href="https://pythonandvba.com/go/coffee-donation" target="_blank" rel="noopener noreferrer" class="link link-hover text-base-content/70 inline-flex items-center">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5 mr-1" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M18 8h1a4 4 0 0 1 0 8h-1"></path>
+                    <path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"></path>
+                    <line x1="6" y1="1" x2="6" y2="4"></line>
+                    <line x1="10" y1="1" x2="10" y2="4"></line>
+                    <line x1="14" y1="1" x2="14" y2="4"></line>
+                </svg>
+                Buy me a coffee
+            </a>
+            <span class="text-base-content/60" id="version-display">v1.1</span>
+        </p>
+    </div>
+    
+    <!-- Settings Modal -->
+    <dialog id="settings-modal" class="modal">
+        <div class="modal-box max-w-2xl">
+            <h3 class="font-bold text-lg mb-4">Settings</h3>
+            <div class="divider">Theme Options</div>
+            <div class="py-2">
+                <div class="flex flex-col gap-4">
+                    <div class="form-control">
+                        <label class="label">
+                            <span class="label-text">Theme</span>
+                        </label>
+                        <select id="theme-select" class="select select-bordered w-full">
+                            <option value="light">Light</option>
+                            <option value="dark">Dark</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="modal-action">
+                <form method="dialog">
+                    <button class="btn btn-primary" onclick="saveSettings()">Save Settings</button>
+                    <button class="btn btn-ghost ml-2">Cancel</button>
+                </form>
+            </div>
+        </div>
+        <form method="dialog" class="modal-backdrop">
+            <button>close</button>
+        </form>
+    </dialog>
+    
+    <!-- Form Settings Editor Modal -->
+    <dialog id="form-settings-modal" class="modal">
+        <div class="modal-box max-w-4xl">
+            <h3 class="font-bold text-lg mb-4">Form Settings Editor</h3>
+            <p class="text-sm mb-4">Edit the JSON below to customize the form fields and appearance. Changes will be saved to your browser's local storage.</p>
+            
+            <div class="form-control">
+                <textarea id="form-settings-json" class="textarea textarea-bordered font-mono text-sm h-96" spellcheck="false"></textarea>
+            </div>
+            
+            <div class="flex justify-between items-center mt-4">
+                <div>
+                    <button class="btn btn-sm btn-outline" onclick="resetFormSettings()">Reset to Default</button>
+                </div>
+                <div class="modal-action">
+                    <button class="btn btn-primary" onclick="applyFormSettings()">Apply Changes</button>
+                    <button class="btn btn-ghost ml-2" onclick="document.getElementById('form-settings-modal').close()">Cancel</button>
+                </div>
+            </div>
+        </div>
+        <form method="dialog" class="modal-backdrop">
+            <button>close</button>
+        </form>
+    </dialog>
+
+    <script>
+        // App state
+        let entries = [];
+        let formSettings = null;
+        
+        // **********************************************************************************
+        // Form configuration -- generated by the Form Builder at pythonandvba.com
+        // You can also edit this manually or via the Form Settings button.
+        // __FORM_SETTINGS_START__
+        const defaultFormSettings = {
+  "formTitle": "Форма заявки",
+  "formDescription": "Заполните, пожалуйста, форму ниже",
+  "fields": [
+    {
+      "id": "field_text_2",
+      "label": "Ваше имя ",
+      "type": "text",
+      "placeholder": "Ваше имя",
+      "required": false,
+      "helpText": ""
+    },
+    {
+      "id": "field_email_3",
+      "label": "Ваш емайл",
+      "type": "email",
+      "placeholder": "Ваш емайл",
+      "required": false,
+      "helpText": "",
+      "validation": {
+        "pattern": "^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$",
+        "errorMessage": "Please enter a valid email address"
+      }
+    },
+    {
+      "id": "field_tel_4",
+      "label": "Ваш телефон",
+      "type": "tel",
+      "placeholder": "Ваш телефон",
+      "required": false,
+      "helpText": ""
+    }
+  ],
+  "tableColumns": [
+    {
+      "field": "field_text_2",
+      "header": "Ваше имя "
+    },
+    {
+      "field": "field_email_3",
+      "header": "Ваш емайл"
+    },
+    {
+      "field": "field_tel_4",
+      "header": "Ваш телефон"
+    },
+    {
+      "field": "timestamp",
+      "header": "Date Added"
+    }
+  ]
+};
+        // __FORM_SETTINGS_END__
+        
+        // Generate a unique storage key per form to avoid conflicts
+        // when multiple forms are opened from file:// (shared origin)
+        const FORM_STORAGE_KEY = 'formSettings_' + (defaultFormSettings.formTitle || '').replace(/[^a-zA-Z0-9]/g, '_');
+
+        // Try to load settings from localStorage or use default
+        function loadFormSettings() {
+            try {
+                // Check if we have settings in localStorage
+                const savedSettings = localStorage.getItem(FORM_STORAGE_KEY);
+                if (savedSettings) {
+                    try {
+                        formSettings = JSON.parse(savedSettings);
+                        console.log('Settings loaded from localStorage');
+                        return formSettings;
+                    } catch (parseError) {
+                        console.error('Error parsing saved settings:', parseError);
+                    }
+                }
+
+                // Use default settings if no saved settings or parsing failed
+                formSettings = defaultFormSettings;
+                return formSettings;
+            } catch (error) {
+                console.error('Error loading form settings:', error);
+                showNotification('Error loading form settings', 'error');
+                return null;
+            }
+        }
+
+        // Save settings to localStorage
+        function saveFormSettings(settings) {
+            try {
+                localStorage.setItem(FORM_STORAGE_KEY, JSON.stringify(settings));
+                console.log('Settings saved to localStorage');
+                return true;
+            } catch (error) {
+                console.error('Error saving settings:', error);
+                showNotification('Error saving settings', 'error');
+                return false;
+            }
+        }
+        
+        // Default settings
+        const defaultSettings = {
+            theme: 'light',
+            entriesVisible: true
+        };
+        
+        // Toggle theme between light and dark
+        function toggleTheme() {
+            const currentTheme = document.documentElement.getAttribute('data-theme') || 'light';
+            const newTheme = currentTheme === 'light' ? 'dark' : 'light';
+            
+            // Apply theme
+            document.documentElement.setAttribute('data-theme', newTheme);
+            defaultSettings.theme = newTheme;
+            
+            // Show notification
+            showNotification(`Theme switched to ${newTheme} mode`, 'success');
+        }
+        
+        // Toggle entries visibility
+        function toggleEntriesVisibility() {
+            const entriesTable = document.querySelector('.overflow-x-auto');
+            const toggleBtn = document.getElementById('toggle-entries-btn');
+            
+            if (defaultSettings.entriesVisible) {
+                // Hide entries
+                entriesTable.classList.add('hidden');
+                toggleBtn.innerHTML = `
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
+                    </svg>
+                    Show Entries
+                `;
+                defaultSettings.entriesVisible = false;
+            } else {
+                // Show entries
+                entriesTable.classList.remove('hidden');
+                toggleBtn.innerHTML = `
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                    </svg>
+                    Hide Entries
+                `;
+                defaultSettings.entriesVisible = true;
+            }
+        }
+        
+        // Save settings
+        function saveSettings() {
+            // Get selected theme
+            const theme = document.getElementById('theme-select').value || 'light';
+            
+            // Apply theme
+            document.documentElement.setAttribute('data-theme', theme);
+            defaultSettings.theme = theme;
+            
+            // Show success message
+            showNotification('Settings saved successfully', 'success');
+            
+            // Close the modal
+            document.getElementById('settings-modal').close();
+        }
+        
+        // Open form settings editor
+        function openFormSettingsEditor() {
+            // Populate the textarea with current settings
+            const settingsJson = JSON.stringify(formSettings, null, 2);
+            document.getElementById('form-settings-json').value = settingsJson;
+            
+            // Open the modal
+            document.getElementById('form-settings-modal').showModal();
+        }
+        
+        // Apply form settings from the editor
+        function applyFormSettings() {
+            try {
+                // Get the JSON from the textarea
+                const settingsJson = document.getElementById('form-settings-json').value;
+                const newSettings = JSON.parse(settingsJson);
+                
+                // Validate settings
+                if (!newSettings || !newSettings.fields || !Array.isArray(newSettings.fields)) {
+                    throw new Error('Invalid settings format. Settings must include a fields array.');
+                }
+
+                // Validate section items
+                newSettings.fields.forEach(item => {
+                    if (item.type === 'section') {
+                        if (!item.id) throw new Error('Each section must have an id');
+                        if (!item.label) throw new Error('Each section must have a label');
+                        if (!item.fields || !Array.isArray(item.fields)) {
+                            throw new Error(`Section "${item.label}" must have a fields array`);
+                        }
+                    }
+                });
+
+                // Save the new settings
+                formSettings = newSettings;
+                saveFormSettings(formSettings);
+                
+                // Regenerate the form
+                generateFormFields(formSettings);
+                
+                // Close the modal
+                document.getElementById('form-settings-modal').close();
+                
+                // Show success message
+                showNotification('Form settings applied successfully', 'success');
+            } catch (error) {
+                console.error('Error applying form settings:', error);
+                showNotification(`Error applying settings: ${error.message}`, 'error');
+            }
+        }
+        
+        // Reset form settings to default
+        function resetFormSettings() {
+            if (confirm('Are you sure you want to reset to default settings? This will remove any customizations.')) {
+                // Reset to default settings
+                formSettings = JSON.parse(JSON.stringify(defaultFormSettings));
+                
+                // Update the textarea
+                document.getElementById('form-settings-json').value = JSON.stringify(formSettings, null, 2);
+                
+                // Show notification
+                showNotification('Settings reset to default', 'info');
+            }
+        }
+        
+
+        
+        // Update status badge
+        function updateStatusBadge() {
+            const statusBadge = document.getElementById('spreadsheet-status');
+            statusBadge.textContent = entries.length > 0 ? `${entries.length} entries` : 'No entries';
+            
+            if (entries.length > 0) {
+                statusBadge.classList.remove('badge-outline');
+                statusBadge.classList.add('badge-primary');
+            } else {
+                statusBadge.classList.add('badge-outline');
+                statusBadge.classList.remove('badge-primary');
+            }
+        }
+        
+        // Helper to flatten nested section structure into a flat field array
+        function getAllFields(settings) {
+            if (!settings || !settings.fields) return [];
+            const result = [];
+            settings.fields.forEach(item => {
+                if (item.type === 'section') {
+                    if (item.fields) result.push(...item.fields);
+                } else {
+                    result.push(item);
+                }
+            });
+            return result;
+        }
+
+        // Function to generate form fields dynamically
+        function generateFormFields(settings) {
+            if (!settings || !settings.fields) {
+                console.error('Invalid form settings');
+                return;
+            }
+            
+            // Update form title and description
+            if (settings.formTitle) {
+                const titleElement = document.getElementById('form-title'); // Direct ID access
+                if (titleElement) {
+                    titleElement.textContent = settings.formTitle;
+                    document.title = settings.formTitle;
+                }
+            }
+            
+            if (settings.formDescription) {
+                const descriptionElement = document.getElementById('form-description-text'); // Use the new ID
+                if (descriptionElement) {
+                    descriptionElement.textContent = settings.formDescription;
+                }
+            }
+            
+            // Get the form container
+            const formContainer = document.getElementById('form-fields-container');
+            if (!formContainer) {
+                console.error('Could not find form container');
+                return;
+            }
+            
+            // Clear existing fields
+            formContainer.innerHTML = '';
+            
+            // Generate fields based on settings
+            settings.fields.forEach(field => {
+                
+                // Create field based on type
+                switch (field.type) {
+                    case 'text':
+                    case 'email':
+                    case 'tel':
+                    case 'url':
+                    case 'date':
+                    case 'number':
+                    case 'textarea':
+                        createInputField(formContainer, field);
+                        break;
+                    case 'select':
+                        createSelectField(formContainer, field);
+                        break;
+                    case 'radio':
+                        createRadioField(formContainer, field);
+                        break;
+                    case 'checkbox':
+                        createCheckboxField(formContainer, field);
+                        break;
+                    case 'section':
+                        createSection(formContainer, field);
+                        break;
+                }
+            });
+
+            // Update table headers if tableColumns is defined
+            if (settings.tableColumns && settings.tableColumns.length > 0) {
+                const tableHeader = document.querySelector('table thead tr');
+                tableHeader.innerHTML = '';
+                
+                settings.tableColumns.forEach(column => {
+                    const th = document.createElement('th');
+                    th.className = 'p-2 border-b';
+                    th.textContent = column.header;
+                    tableHeader.appendChild(th);
+                });
+                
+                // Add Actions column
+                const actionsHeader = document.createElement('th');
+                actionsHeader.className = 'p-2 border-b';
+                actionsHeader.textContent = 'Actions';
+                tableHeader.appendChild(actionsHeader);
+            }
+        }
+        
+        // Helper function to create input fields
+        function createInputField(container, field) {
+            const formControl = document.createElement('div');
+            formControl.className = 'form-control';
+            
+            // Create label
+            const label = document.createElement('label');
+            label.className = 'label';
+            label.innerHTML = `<span class="label-text">${field.label}${field.required ? ' <span class="text-error">*</span>' : ''}</span>`;
+            
+            // Create input element based on field type
+            let inputElement;
+            
+            // Check if it's a textarea
+            if (field.type === 'textarea') {
+                // Create textarea element
+                inputElement = document.createElement('textarea');
+                inputElement.className = 'textarea textarea-bordered w-full';
+                inputElement.rows = field.rows || 4; // Default to 4 rows if not specified
+            } else {
+                // Create regular input element
+                inputElement = document.createElement('input');
+                // If field.type is 'number', render as type 'text' for custom behavior
+                inputElement.type = field.type === 'number' ? 'text' : field.type;
+                inputElement.className = 'input input-bordered w-full';
+                
+                // For 'number' type fields, min/max attributes are not standard for type="text"
+                // but can be used by custom validation. Let's keep them if they exist.
+                if (field.min !== undefined) inputElement.setAttribute('min', field.min); // Keep as attribute for custom validation
+                if (field.max !== undefined) inputElement.setAttribute('max', field.max); // Keep as attribute for custom validation
+                if (field.pattern) inputElement.pattern = field.pattern;
+                
+                // If original type was 'number', or if inputmode is 'numeric', set numeric properties
+                if (field.type === 'number' || field.inputmode === 'numeric') {
+                    inputElement.inputMode = 'numeric'; // Set inputmode for mobile keyboards
+                    if (!field.pattern) { // Add numeric pattern if not already specified
+                        inputElement.pattern = '[0-9]*'; 
+                    }
+                }
+            }
+            
+            // Set common attributes for both input and textarea
+            inputElement.id = field.id;
+            if (field.placeholder) inputElement.placeholder = field.placeholder;
+            if (field.required) inputElement.required = true;
+            if (field.minLength) inputElement.minLength = field.minLength;
+            if (field.maxLength) inputElement.maxLength = field.maxLength;
+            
+            // Set up validation
+            if (field.type === 'email') {
+                inputElement.setAttribute('oninput', 'validateEmail(this)');
+            } else if (field.type === 'number') { // This is our 'custom' number type now rendered as text
+                inputElement.setAttribute('oninput', 'validateNumericText(this)'); 
+                // No onkeydown needed, validateNumericText handles stripping non-numeric chars
+            } else if (field.inputmode === 'numeric') { // For other text inputs that are numeric
+                inputElement.setAttribute('oninput', 'validateNumericText(this)');
+            } else if (field.required) { // For other general required fields
+                inputElement.setAttribute('oninput', 'validateField(this)');
+            }
+            
+            // Create error message container if validation is provided
+            let errorLabel;
+            if (field.validation) {
+                errorLabel = document.createElement('label');
+                errorLabel.className = 'label';
+                errorLabel.innerHTML = `<span class="label-text-alt text-error hidden" id="${field.id}-error">${field.validation.errorMessage}</span>`;
+            }
+            
+            // Append elements to form control
+            formControl.appendChild(label);
+            formControl.appendChild(inputElement);
+            
+            // Add help text if provided
+            if (field.helpText) {
+                const helpText = document.createElement('div');
+                helpText.className = 'text-xs text-base-content/70 mt-1';
+                helpText.textContent = field.helpText;
+                formControl.appendChild(helpText);
+            }
+            
+            if (errorLabel) formControl.appendChild(errorLabel);
+            
+            // Append form control to container
+            container.appendChild(formControl);
+        }
+        
+        // Helper function to create select fields
+        function createSelectField(container, field) {
+            const formControl = document.createElement('div');
+            formControl.className = 'form-control';
+            
+            // Create label
+            const label = document.createElement('label');
+            label.className = 'label';
+            label.innerHTML = `<span class="label-text">${field.label}${field.required ? ' <span class="text-error">*</span>' : ''}</span>`;
+            
+            // Create select
+            const select = document.createElement('select');
+            select.id = field.id;
+            select.className = 'select select-bordered w-full';
+            if (field.required) select.required = true;
+            
+            // Add options
+            if (field.options && field.options.length > 0) {
+                field.options.forEach(option => {
+                    const optionElement = document.createElement('option');
+                    optionElement.value = option.value;
+                    optionElement.textContent = option.label;
+                    if (option.disabled) optionElement.disabled = true;
+                    if (option.selected) optionElement.selected = true;
+                    select.appendChild(optionElement);
+                });
+            }
+            
+            // Append elements to form control
+            formControl.appendChild(label);
+            formControl.appendChild(select);
+            
+            // Add help text if provided
+            if (field.helpText) {
+                const helpText = document.createElement('div');
+                helpText.className = 'text-xs text-base-content/70 mt-1';
+                helpText.textContent = field.helpText;
+                formControl.appendChild(helpText);
+            }
+            
+            // Append form control to container
+            container.appendChild(formControl);
+        }
+        
+        // Helper function to create radio fields
+        function createRadioField(container, field) {
+            const formControl = document.createElement('div');
+            formControl.className = 'form-control';
+            
+            // Create label
+            const label = document.createElement('label');
+            label.className = 'label';
+            label.innerHTML = `<span class="label-text">${field.label}${field.required ? ' <span class="text-error">*</span>' : ''}</span>`;
+            
+            // Create options container
+            const optionsContainer = document.createElement('div');
+            optionsContainer.className = 'flex flex-col space-y-2';
+            
+            // Add options
+            if (field.options && field.options.length > 0) {
+                field.options.forEach(option => {
+                    const optionLabel = document.createElement('label');
+                    optionLabel.className = 'label cursor-pointer justify-start gap-2';
+                    
+                    const radio = document.createElement('input');
+                    radio.type = 'radio';
+                    radio.name = field.id;
+                    radio.value = option.value;
+                    radio.className = 'radio radio-primary';
+                    if (option.checked) radio.checked = true;
+                    
+                    const span = document.createElement('span');
+                    span.className = 'label-text';
+                    span.textContent = option.label;
+                    
+                    optionLabel.appendChild(radio);
+                    optionLabel.appendChild(span);
+                    optionsContainer.appendChild(optionLabel);
+                });
+            }
+            
+            // Append elements to form control
+            formControl.appendChild(label);
+            formControl.appendChild(optionsContainer);
+            
+            // Append form control to container
+            container.appendChild(formControl);
+        }
+        
+        // Helper function to create checkbox fields
+        function createCheckboxField(container, field) {
+            const formControl = document.createElement('div');
+            formControl.className = 'form-control';
+            
+            // Create label
+            const label = document.createElement('label');
+            label.className = 'label';
+            label.innerHTML = `<span class="label-text">${field.label}${field.required ? ' <span class="text-error">*</span>' : ''}</span>`;
+            
+            // Create options container
+            const optionsContainer = document.createElement('div');
+            optionsContainer.className = 'flex flex-col space-y-2';
+            
+            // Add options
+            if (field.options && field.options.length > 0) {
+                field.options.forEach(option => {
+                    const optionLabel = document.createElement('label');
+                    optionLabel.className = 'label cursor-pointer justify-start gap-2';
+                    
+                    const checkbox = document.createElement('input');
+                    checkbox.type = 'checkbox';
+                    checkbox.id = option.id || `${field.id}-${option.value}`;
+                    checkbox.className = 'checkbox checkbox-primary';
+                    if (option.checked) checkbox.checked = true;
+                    
+                    const span = document.createElement('span');
+                    span.className = 'label-text';
+                    span.textContent = option.label;
+                    
+                    optionLabel.appendChild(checkbox);
+                    optionLabel.appendChild(span);
+                    optionsContainer.appendChild(optionLabel);
+                });
+            }
+            
+            // Append elements to form control
+            formControl.appendChild(label);
+            formControl.appendChild(optionsContainer);
+
+            // Append form control to container
+            container.appendChild(formControl);
+        }
+
+        // Helper function to create collapsible sections
+        function createSection(container, sectionDef) {
+            const wrapper = document.createElement('div');
+            wrapper.id = sectionDef.id;
+            wrapper.className = 'collapse collapse-arrow bg-base-200 rounded-box mb-4';
+
+            const toggle = document.createElement('input');
+            toggle.type = 'checkbox';
+            toggle.checked = sectionDef.defaultOpen !== false;
+
+            const title = document.createElement('div');
+            title.className = 'collapse-title text-lg font-medium';
+            title.textContent = sectionDef.label;
+
+            const content = document.createElement('div');
+            content.className = 'collapse-content space-y-4';
+
+            // Render child fields into the content div using existing create* functions
+            if (sectionDef.fields) {
+                sectionDef.fields.forEach(field => {
+                    switch (field.type) {
+                        case 'text':
+                        case 'email':
+                        case 'tel':
+                        case 'url':
+                        case 'date':
+                        case 'number':
+                        case 'textarea':
+                            createInputField(content, field);
+                            break;
+                        case 'select':
+                            createSelectField(content, field);
+                            break;
+                        case 'radio':
+                            createRadioField(content, field);
+                            break;
+                        case 'checkbox':
+                            createCheckboxField(content, field);
+                            break;
+                    }
+                });
+            }
+
+            wrapper.appendChild(toggle);
+            wrapper.appendChild(title);
+            wrapper.appendChild(content);
+            container.appendChild(wrapper);
+
+            // Setup conditional visibility if condition exists
+            if (sectionDef.condition && sectionDef.condition.field) {
+                setupSectionCondition(sectionDef, wrapper);
+            }
+        }
+
+        // Setup conditional visibility for a section
+        function setupSectionCondition(sectionDef, sectionEl) {
+            const condition = sectionDef.condition;
+
+            function evaluateCondition() {
+                let value = '';
+                const allFields = getAllFields(formSettings);
+                const triggerDef = allFields.find(f => f.id === condition.field);
+
+                if (triggerDef && triggerDef.type === 'radio') {
+                    const checked = document.querySelector(`input[name="${condition.field}"]:checked`);
+                    value = checked ? checked.value : '';
+                } else {
+                    const el = document.getElementById(condition.field);
+                    value = el ? el.value : '';
+                }
+
+                switch (condition.operator) {
+                    case 'equals':    return value === condition.value;
+                    case 'notEquals': return value !== condition.value;
+                    case 'contains':  return value.includes(condition.value);
+                    case 'notEmpty':  return value !== '';
+                    case 'empty':     return value === '';
+                    default:          return true;
+                }
+            }
+
+            function applyVisibility() {
+                const shouldShow = evaluateCondition();
+                sectionEl.style.display = shouldShow ? '' : 'none';
+
+                // Toggle required on child fields so hidden fields don't block submit
+                if (sectionDef.fields) {
+                    sectionDef.fields.forEach(field => {
+                        if (field.required) {
+                            const el = document.getElementById(field.id);
+                            if (el) {
+                                el.required = shouldShow;
+                                if (!shouldShow) {
+                                    el.classList.remove('input-error');
+                                    const errEl = document.getElementById(`${field.id}-error`);
+                                    if (errEl) errEl.classList.add('hidden');
+                                }
+                            }
+                        }
+                    });
+                }
+            }
+
+            // Attach listeners to trigger field
+            const allFields = getAllFields(formSettings);
+            const triggerDef = allFields.find(f => f.id === condition.field);
+
+            if (triggerDef && triggerDef.type === 'radio') {
+                document.querySelectorAll(`input[name="${condition.field}"]`)
+                    .forEach(radio => radio.addEventListener('change', applyVisibility));
+            } else {
+                const el = document.getElementById(condition.field);
+                if (el) {
+                    el.addEventListener('change', applyVisibility);
+                    el.addEventListener('input', applyVisibility);
+                }
+            }
+
+            // Set initial visibility
+            applyVisibility();
+        }
+
+    // Initialize the app
+    document.addEventListener('DOMContentLoaded', () => {
+        try {
+            // Apply theme
+            document.documentElement.setAttribute('data-theme', defaultSettings.theme);
+                // Apply theme
+                document.documentElement.setAttribute('data-theme', defaultSettings.theme);
+                
+                // Load form settings and generate form fields
+                const settings = loadFormSettings();
+                if (settings) {
+                    generateFormFields(settings);
+                }
+                
+                // Set up form validation
+                setupFormValidation();
+                
+                // Update the status badge
+                updateStatusBadge();
+                
+                // Update spreadsheet status
+                updateSpreadsheetStatus();
+                
+                // Focus on the first input field (if it exists)
+                const firstInput = document.querySelector('input[type="text"], input[type="email"]');
+                if (firstInput) firstInput.focus();
+            } catch (error) {
+                console.error('Error initializing app:', error);
+                showNotification('Error initializing application', 'error');
+            }
+        });
+        
+        // Set up form validation
+        function setupFormValidation() {
+            const form = document.getElementById('entry-form');
+            if (!form) return;
+            
+            // Add input event listeners for real-time validation
+            const inputs = form.querySelectorAll('input[required], textarea[required]');
+            inputs.forEach(input => {
+                input.addEventListener('input', function() {
+                    this.setCustomValidity('');
+                    this.checkValidity();
+                });
+                
+                input.addEventListener('invalid', function() {
+                    this.setCustomValidity(this.validationMessage);
+                    this.reportValidity();
+                });
+            });
+        }
+        
+        // Validate name field
+        function validateField(field) {
+            const errorElement = document.getElementById(`${field.id}-error`);
+            if (!errorElement) return;
+            
+            if (field.validity.valueMissing) {
+                errorElement.textContent = 'This field is required';
+                errorElement.classList.remove('hidden');
+                field.classList.add('input-error');
+            } else if (field.validity.tooShort) {
+                errorElement.textContent = `Must be at least ${field.minLength} characters`;
+                errorElement.classList.remove('hidden');
+                field.classList.add('input-error');
+            } else {
+                errorElement.classList.add('hidden');
+                field.classList.remove('input-error');
+            }
+        }
+        
+        // Validate email field
+        function validateEmail(field) {
+            const errorElement = document.getElementById(`${field.id}-error`);
+            if (!errorElement) return true; // If no error element, consider valid
+            
+            const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+            
+            if (field.validity.valueMissing) {
+                errorElement.textContent = 'Email is required';
+                errorElement.classList.remove('hidden');
+                field.classList.add('input-error');
+                return false;
+            } else if (!emailRegex.test(field.value)) {
+                errorElement.textContent = 'Please enter a valid email address';
+                errorElement.classList.remove('hidden');
+                field.classList.add('input-error');
+                return false;
+            } else {
+                errorElement.classList.add('hidden');
+                field.classList.remove('input-error');
+                return true;
+            }
+        }
+        
+        // Validate number field
+        function validateNumber(field) {
+            const errorElement = document.getElementById(`${field.id}-error`);
+            if (!errorElement) return true; // If no error element, consider valid
+            
+            // Remove any non-numeric characters (except decimal point)
+            const value = field.value.trim();
+            const numericValue = value.replace(/[^0-9.]/g, '');
+            
+            if (value !== numericValue) {
+                // If the user entered non-numeric characters, replace with cleaned value
+                field.value = numericValue;
+            }
+            
+            if (field.validity.valueMissing) {
+                errorElement.textContent = 'This field is required';
+                errorElement.classList.remove('hidden');
+                field.classList.add('input-error');
+                return false;
+            } else if (field.validity.rangeUnderflow) {
+                errorElement.textContent = `Value must be at least ${field.min}`;
+                errorElement.classList.remove('hidden');
+                field.classList.add('input-error');
+                return false;
+            } else if (field.validity.rangeOverflow) {
+                errorElement.textContent = `Value must be at most ${field.max}`;
+                errorElement.classList.remove('hidden');
+                field.classList.add('input-error');
+                return false;
+            } else if (isNaN(parseFloat(field.value)) && field.value !== '') {
+                errorElement.textContent = 'Please enter a valid number';
+                errorElement.classList.remove('hidden');
+                field.classList.add('input-error');
+                return false;
+            } else {
+                errorElement.classList.add('hidden');
+                field.classList.remove('input-error');
+                return true;
+            }
+        }
+        
+        // Validate numeric text field (text input that only accepts numbers)
+        function validateNumericText(field) {
+            const errorElement = document.getElementById(`${field.id}-error`);
+            if (!errorElement) return true; // If no error element, consider valid
+            
+            // Remove any non-numeric characters
+            const value = field.value.trim();
+            const numericValue = value.replace(/[^0-9]/g, '');
+            
+            if (value !== numericValue) {
+                // If the user entered non-numeric characters, replace with cleaned value
+                field.value = numericValue;
+            }
+            
+            if (field.validity.valueMissing) {
+                errorElement.textContent = 'This field is required';
+                errorElement.classList.remove('hidden');
+                field.classList.add('input-error');
+                return false;
+            } else if (field.validity.patternMismatch) {
+                errorElement.textContent = 'Please enter numbers only';
+                errorElement.classList.remove('hidden');
+                field.classList.add('input-error');
+                return false;
+            } else {
+                errorElement.classList.add('hidden');
+                field.classList.remove('input-error');
+                return true;
+            }
+        }
+        
+        // Get all form data as an object
+        function getFormData() {
+            // Initialize empty form data object
+            const formData = {};
+            
+            if (!formSettings || !formSettings.fields || formSettings.fields.length === 0) {
+                // Fallback to original hardcoded behavior if settings are not available
+                // Try to get values from any input fields that exist in the form
+                const formContainer = document.getElementById('form-fields-container');
+                if (formContainer) {
+                    // Get all input, select, and textarea elements
+                    const inputElements = formContainer.querySelectorAll('input, select, textarea');
+                    
+                    // Process each input element
+                    inputElements.forEach(element => {
+                        if (element.id) {
+                            // For checkboxes and radio buttons
+                            if ((element.type === 'checkbox' || element.type === 'radio') && !element.checked) {
+                                return; // Skip unchecked boxes/radios
+                            }
+                            
+                            // Store the value
+                            formData[element.id] = element.value;
+                        }
+                    });
+                    
+                    // Handle checkbox groups (they might have the same name)
+                    const checkboxGroups = {};
+                    formContainer.querySelectorAll('input[type="checkbox"]:checked').forEach(checkbox => {
+                        const name = checkbox.name;
+                        if (name) {
+                            if (!checkboxGroups[name]) {
+                                checkboxGroups[name] = [];
+                            }
+                            checkboxGroups[name].push(checkbox.value);
+                        }
+                    });
+                    
+                    // Add checkbox groups to form data
+                    Object.keys(checkboxGroups).forEach(groupName => {
+                        formData[groupName] = checkboxGroups[groupName];
+                    });
+                }
+                
+                return formData;
+            }
+            
+            // Dynamic form data collection based on settings
+            // Process each field based on its type
+            getAllFields(formSettings).forEach(field => {
+                switch (field.type) {
+                    case 'text':
+                    case 'email':
+                    case 'tel':
+                    case 'url':
+                    case 'date':
+                    case 'number':
+                    case 'textarea':
+                        // Simple input fields
+                        const element = document.getElementById(field.id);
+                        if (element) {
+                            formData[field.id] = element.value;
+                        }
+                        break;
+                        
+                    case 'select':
+                        // Select dropdown
+                        const select = document.getElementById(field.id);
+                        if (select) {
+                            formData[field.id] = select.value;
+                        }
+                        break;
+                        
+                    case 'radio':
+                        // Radio buttons
+                        const radio = document.querySelector(`input[name="${field.id}"]:checked`);
+                        formData[field.id] = radio ? radio.value : '';
+                        break;
+                        
+                    case 'checkbox':
+                        // Checkboxes
+                        if (field.options && field.options.length > 0) {
+                            const checkedValues = [];
+                            field.options.forEach(option => {
+                                const checkbox = document.getElementById(option.id || `${field.id}-${option.value}`);
+                                if (checkbox && checkbox.checked) {
+                                    checkedValues.push(option.value || option.label);
+                                }
+                            });
+                            formData[field.id] = checkedValues;
+                        }
+                        break;
+                }
+            });
+            
+            return formData;
+        }
+        
+        // Set form data from an object
+        function setFormData(formData) {
+            if (!formData) return;
+            
+            // Get all form fields in the container
+            const formContainer = document.getElementById('form-fields-container');
+            if (!formContainer) return;
+            
+            // Dynamic form data setting based on settings
+            getAllFields(formSettings).forEach(field => {
+                // Skip if the field doesn't have a value in the formData
+                if (formData[field.id] === undefined) return;
+                
+                switch (field.type) {
+                    case 'text':
+                    case 'email':
+                    case 'tel':
+                    case 'url':
+                    case 'date':
+                    case 'number':
+                    case 'textarea':
+                        // Simple input fields
+                        const element = document.getElementById(field.id);
+                        if (element) {
+                            element.value = formData[field.id];
+                        }
+                        break;
+                        
+                    case 'select':
+                        // Select dropdown
+                        const select = document.getElementById(field.id);
+                        if (select) {
+                            for (let i = 0; i < select.options.length; i++) {
+                                if (select.options[i].value === formData[field.id]) {
+                                    select.selectedIndex = i;
+                                    break;
+                                }
+                            }
+                        }
+                        break;
+                        
+                    case 'radio':
+                        // Radio buttons
+                        const radio = document.querySelector(`input[name="${field.id}"][value="${formData[field.id]}"]`);
+                        if (radio) radio.checked = true;
+                        break;
+                        
+                    case 'checkbox':
+                        // Checkboxes
+                        if (field.options && field.options.length > 0 && formData[field.id]) {
+                            // Handle both array and string values
+                            let values = [];
+                            if (Array.isArray(formData[field.id])) {
+                                values = formData[field.id];
+                            } else if (typeof formData[field.id] === 'string') {
+                                values = formData[field.id].split(',').map(v => v.trim());
+                            } else {
+                                // If it's neither array nor string, convert to string and then split
+                                values = String(formData[field.id]).split(',').map(v => v.trim());
+                            }
+                            
+                            field.options.forEach(option => {
+                                const checkbox = document.getElementById(option.id || `${field.id}-${option.value}`);
+                                if (checkbox) {
+                                    checkbox.checked = values.includes(option.value) || values.includes(option.label);
+                                }
+                            });
+                        }
+                        break;
+                }
+            });
+        }
+        
+        // Add new entry - this is the original function that will be overridden
+        function addEntry() {
+            // This function is overridden by the Excel-enabled version
+            // The code is kept here for reference but is not used directly
+            const formData = getFormData();
+            
+            // Add timestamp if not present
+            if (!formData.timestamp) {
+                formData.timestamp = new Date().toISOString();
+            }
+            
+            // Add to entries array
+            entries.push(formData);
+            
+            // Update the table
+            updateTable();
+            
+            // Clear the form
+            clearForm();
+            
+            // Update status badge
+            updateStatusBadge();
+            
+            // Show success message
+            showNotification('Entry added successfully', 'success');
+        }
+
+        // Helper function to safely escape HTML and preserve line breaks
+        function formatTableCell(value) {
+            if (value === null || value === undefined) return '-';
+            
+            // Convert to string and escape HTML
+            let str = String(value);
+            str = str.replace(/&/g, '&amp;')
+                    .replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;')
+                    .replace(/"/g, '&quot;')
+                    .replace(/'/g, '&#039;');
+            
+            // Replace newlines with <br> and wrap in a div with whitespace pre-line
+            if (typeof value === 'string' && value.includes('\n')) {
+                return `<div class="whitespace-pre-line">${str.replace(/\n/g, '<br>')}</div>`;
+            }
+            
+            return str;
+        }
+
+        // Update the entries table
+        function updateTable() {
+            const tbody = document.getElementById('entries-body');
+            const searchTerm = document.getElementById('search-entries').value.toLowerCase();
+            
+            // Filter entries based on search term
+            const filteredEntries = entries.filter(entry => {
+                if (!searchTerm) return true;
+                
+                // Search in all string fields
+                return Object.values(entry).some(value => {
+                    const strValue = value !== null && value !== undefined ? String(value).toLowerCase() : '';
+                    return strValue.includes(searchTerm);
+                });
+            });
+            
+            tbody.innerHTML = '';
+            
+            if (filteredEntries.length === 0) {
+                const row = document.createElement('tr');
+                const colSpan = formSettings?.tableColumns?.length + 1 || 12; // +1 for actions column
+                row.innerHTML = `
+                    <td colspan="${colSpan}" class="text-center py-4 text-gray-500">
+                        No entries found. Try adjusting your search or add a new entry.
+                    </td>
+                `;
+                tbody.appendChild(row);
+                return;
+            }
+            
+            filteredEntries.forEach((entry, index) => {
+                const row = document.createElement('tr');
+                
+                // If we have table columns defined in settings, use those
+                if (formSettings && formSettings.tableColumns) {
+                    formSettings.tableColumns.forEach(column => {
+                        const td = document.createElement('td');
+                        td.className = 'p-2 border align-top';
+                        
+                        // Special handling for timestamp/date
+                        if (column.field === 'timestamp') {
+                            const date = entry.timestamp ? new Date(entry.timestamp).toLocaleString() : '-';
+                            td.className += ' text-sm text-gray-500';
+                            td.innerHTML = formatTableCell(date);
+                        } 
+                        // Default handling
+                        else {
+                            td.innerHTML = formatTableCell(entry[column.field]);
+                        }
+                        
+                        row.appendChild(td);
+                    });
+                } 
+                // Dynamically create columns based on the entry's properties
+                else {
+                    // Get all keys from the entry
+                    const keys = Object.keys(entry);
+                    
+                    // Create a cell for each property in the entry
+                    keys.forEach(key => {
+                        const td = document.createElement('td');
+                        td.className = 'p-2 border align-top';
+                        
+                        // Special handling for timestamp
+                        if (key === 'timestamp') {
+                            const date = entry.timestamp ? new Date(entry.timestamp).toLocaleString() : '-';
+                            td.className += ' text-sm text-gray-500';
+                            td.innerHTML = formatTableCell(date);
+                        } 
+                        // Special handling for arrays (like skills)
+                        else if (Array.isArray(entry[key])) {
+                            td.innerHTML = formatTableCell(entry[key].join(', ') || '-');
+                        }
+                        // Default handling
+                        else {
+                            td.innerHTML = formatTableCell(entry[key] || '-');
+                        }
+                        
+                        row.appendChild(td);
+                    });
+                }
+                
+                // Add actions column
+                const actionsCell = document.createElement('td');
+                actionsCell.className = 'p-2 border align-top';
+                actionsCell.innerHTML = `
+                    <div class="flex gap-1">
+                        <button onclick="editEntry(${index})" class="btn btn-xs btn-ghost p-1" title="Edit">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                            </svg>
+                        </button>
+                        <button onclick="deleteEntry(${index})" class="btn btn-xs btn-ghost p-1 text-error" title="Delete">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
+                        </button>
+                    </div>
+                `;
+                row.appendChild(actionsCell);
+                
+                tbody.appendChild(row);
+            });
+        }
+
+        // Delete an entry
+        function deleteEntry(index) {
+            if (confirm('Are you sure you want to delete this entry?')) {
+                entries.splice(index, 1);
+                updateTable();
+                
+                // Update status badge
+                updateStatusBadge();
+                
+                showNotification('Entry deleted successfully', 'success');
+                
+                // Clear the form if editing the deleted entry
+                if (window.currentlyEditingIndex === index) {
+                    clearForm();
+                }
+            }
+        }
+        
+        // Edit an entry
+        function editEntry(index) {
+            const entry = entries[index];
+            if (!entry) return;
+            
+            // Set form values
+            setFormData(entry);
+            
+            // Update UI for edit mode
+            const submitBtn = document.querySelector('button[onclick^="addEntry"]');
+            if (submitBtn) {
+                submitBtn.textContent = 'Update Entry';
+                submitBtn.setAttribute('onclick', `updateEntry(${index})`);
+                submitBtn.classList.remove('btn-primary');
+                submitBtn.classList.add('btn-accent');
+                
+                // Add cancel button if not exists
+                if (!document.getElementById('cancel-edit-btn')) {
+                    const cancelBtn = document.createElement('button');
+                    cancelBtn.id = 'cancel-edit-btn';
+                    cancelBtn.className = 'btn btn-ghost';
+                    cancelBtn.textContent = 'Cancel';
+                    cancelBtn.onclick = () => {
+                        clearForm();
+                        cancelBtn.remove();
+                    };
+                    submitBtn.parentNode.insertBefore(cancelBtn, submitBtn.nextSibling);
+                }
+            }
+            
+            // Store the current editing index
+            window.currentlyEditingIndex = index;
+            
+            // Scroll to form
+            document.getElementById('entry-form').scrollIntoView({ behavior: 'smooth' });
+        }
+        
+        // Update an existing entry
+        function updateEntry(index) {
+            const formData = getFormData();
+            
+            // Preserve the timestamp from the original entry
+            if (entries[index] && entries[index].timestamp) {
+                formData.timestamp = entries[index].timestamp;
+            }
+            
+            // Update the entry
+            entries[index] = formData;
+            
+            // Update the table
+            updateTable();
+            
+            // Update status badge
+            updateStatusBadge();
+            
+            // Clear the form and reset editing state
+            clearForm();
+            
+            showNotification('Entry updated successfully', 'success');
+            
+            // Change button text back to Add Entry
+            const submitBtn = document.querySelector('button[onclick^="updateEntry"]');
+            if (submitBtn) {
+                submitBtn.textContent = 'Add Entry';
+                submitBtn.setAttribute('onclick', 'addEntry()');
+                submitBtn.classList.remove('btn-accent');
+                submitBtn.classList.add('btn-primary');
+            }
+            
+            // Reset editing index
+            window.currentlyEditingIndex = undefined;    
+        }
+        
+        // Show notification
+        function showNotification(message, type = 'info') {
+            // Create notification element if it doesn't exist
+            let notification = document.getElementById('notification');
+            if (!notification) {
+                notification = document.createElement('div');
+                notification.id = 'notification';
+                notification.className = 'fixed bottom-4 right-4 p-4 rounded-lg shadow-lg transition-opacity duration-300 opacity-0';
+                document.body.appendChild(notification);
+            }
+            
+            // Set notification content and style
+            notification.textContent = message;
+            notification.className = `fixed bottom-4 right-4 p-4 rounded-lg shadow-lg transition-opacity duration-300 opacity-100 `;
+            
+            // Add type-specific styling
+            switch (type) {
+                case 'success':
+                    notification.className += 'bg-green-500 text-white';
+                    break;
+                case 'error':
+                    notification.className += 'bg-red-500 text-white';
+                    break;
+                case 'warning':
+                    notification.className += 'bg-yellow-500 text-black';
+                    break;
+                default:
+                    notification.className += 'bg-blue-500 text-white';
+            }
+            
+            // Auto-hide after 3 seconds
+            setTimeout(() => {
+                notification.style.opacity = '0';
+                setTimeout(() => {
+                    notification.remove();
+                }, 300);
+            }, 3000);
+        }
+
+        // Clear all entries from the table
+        async function clearAllEntries() {
+            if (confirm('Are you sure you want to delete ALL entries? This cannot be undone.')) {
+                entries = [];
+                updateTable();
+                
+                // Auto-save to Excel if enabled
+                if (defaultSettings.autoSaveExcel) {
+                    await saveEntriesToExcel();
+                }
+                
+                // Show notification
+                showNotification('All entries have been deleted', 'success');
+                
+                // Clear the form if in edit mode
+                if (window.currentlyEditingIndex !== undefined) {
+                    clearForm();
+                }
+            }
+        }
+        
+        // Clear the form
+        function clearForm() {
+            // Get the form container
+            const formContainer = document.getElementById('form-fields-container');
+            if (!formContainer) return;
+            
+            // Dynamic form clearing based on settings
+            if (formSettings && formSettings.fields) {
+                getAllFields(formSettings).forEach(field => {
+                    switch (field.type) {
+                        case 'text':
+                        case 'email':
+                        case 'tel':
+                        case 'url':
+                        case 'date':
+                        case 'number':
+                        case 'textarea':
+                            // Simple input fields
+                            const element = document.getElementById(field.id);
+                            if (element) element.value = '';
+                            break;
+                            
+                        case 'select':
+                            // Select dropdown
+                            const select = document.getElementById(field.id);
+                            if (select) select.selectedIndex = 0;
+                            break;
+                            
+                        case 'radio':
+                            // Radio buttons - select the first option or the one marked as checked
+                            if (field.options && field.options.length > 0) {
+                                const defaultOption = field.options.find(opt => opt.checked) || field.options[0];
+                                if (defaultOption) {
+                                    const radio = document.querySelector(`input[name="${field.id}"][value="${defaultOption.value}"]`);
+                                    if (radio) radio.checked = true;
+                                }
+                            }
+                            break;
+                            
+                        case 'checkbox':
+                            // Checkboxes - uncheck all
+                            if (field.options && field.options.length > 0) {
+                                field.options.forEach(option => {
+                                    const checkbox = document.getElementById(option.id || `${field.id}-${option.value}`);
+                                    if (checkbox) checkbox.checked = false;
+                                });
+                            }
+                            break;
+                    }
+                });
+            }
+            
+            // Reset edit mode if active
+            if (window.currentlyEditingIndex !== undefined) {
+                delete window.currentlyEditingIndex;
+                const submitBtn = document.querySelector('button[onclick^="addEntry"], button[onclick^="updateEntry"]');
+                if (submitBtn) {
+                    submitBtn.textContent = 'Add Entry';
+                    submitBtn.setAttribute('onclick', 'addEntry()');
+                    submitBtn.classList.remove('btn-accent');
+                    submitBtn.classList.add('btn-primary');
+                }
+                
+                // Remove cancel button if it exists
+                const cancelBtn = document.getElementById('cancel-edit-btn');
+                if (cancelBtn) cancelBtn.remove();
+            }
+            
+            // Focus on the first input field
+            const firstInput = document.querySelector('input[type="text"], input[type="email"]');
+            if (firstInput) firstInput.focus();
+        }
+
+
+
+        // Excel Import/Export Functions
+        
+        // Import data from Excel file
+        function importFromExcel() {
+            try {
+                // Create file input element
+                const input = document.createElement('input');
+                input.type = 'file';
+                input.accept = '.xlsx, .xls, .csv';
+                
+                // Handle file selection
+                input.onchange = async (e) => {
+                    const file = e.target.files[0];
+                    if (!file) return;
+                    
+                    try {
+                        // Show loading indicator
+                        showNotification('Loading Excel file...', 'info');
+                        
+                        // Read the file
+                        const arrayBuffer = await file.arrayBuffer();
+                        const data = new Uint8Array(arrayBuffer);
+                        
+                        // Parse the Excel file
+                        const workbook = XLSX.read(data, { type: 'array' });
+                        
+                        if (!workbook.SheetNames || workbook.SheetNames.length === 0) {
+                            throw new Error('No sheets found in the Excel file');
+                        }
+                        
+                        const firstSheet = workbook.Sheets['Entries'] || workbook.Sheets[workbook.SheetNames[0]];
+                        
+                        // Convert to JSON
+                        const jsonData = XLSX.utils.sheet_to_json(firstSheet);
+                        
+                        if (jsonData.length === 0) {
+                            showNotification('No data found in the Excel file', 'warning');
+                            return;
+                        }
+                        
+                        // Get form settings to know field structure
+                        const currentFormSettings = formSettings || loadFormSettings();
+                        
+                        if (!currentFormSettings || !currentFormSettings.tableColumns || !currentFormSettings.fields) {
+                            showNotification('Error: Form settings not found or incomplete', 'error');
+                            return;
+                        }
+                        
+                        // Create a mapping of header text to field IDs
+                        const headerToFieldMap = {};
+                        currentFormSettings.tableColumns.forEach(column => {
+                            headerToFieldMap[column.header.toLowerCase()] = column.field;
+                        });
+                        
+                        // Create a mapping of field types
+                        const fieldTypes = {};
+                        currentFormSettings.fields.forEach(field => {
+                            fieldTypes[field.id] = field.type;
+                        });
+                        
+                        // Ask user if they want to replace or append
+                        let action = 'replace';
+                        if (entries.length > 0) {
+                            action = confirm('Do you want to replace existing entries? Click OK to replace, or Cancel to append.') ? 'replace' : 'append';
+                        }
+                        
+                        if (action === 'replace') {
+                            entries = [];
+                        }
+                        
+                        // Process the data
+                        const importedEntries = jsonData.map(row => {
+                            // Create a new entry object
+                            const entry = {
+                                timestamp: new Date().toISOString()
+                            };
+                            
+                            // Map each column from the Excel file to the appropriate field
+                            Object.keys(row).forEach(excelHeader => {
+                                // Try to find the corresponding field ID for this header
+                                const fieldId = findMatchingFieldId(excelHeader, headerToFieldMap);
+                                if (!fieldId) return; // Skip if no matching field
+                                
+                                let value = row[excelHeader];
+                                
+                                // Process value based on field type
+                                if (fieldId === 'timestamp' && value) {
+                                    try {
+                                        const date = new Date(value);
+                                        if (!isNaN(date.getTime())) {
+                                            entry.timestamp = date.toISOString();
+                                        }
+                                    } catch (e) {}
+                                } else if (fieldTypes[fieldId] === 'checkbox' && typeof value === 'string') {
+                                    // Convert comma-separated string to array for checkbox fields
+                                    entry[fieldId] = value.split(',').map(item => item.trim()).filter(item => item);
+                                } else {
+                                    entry[fieldId] = value;
+                                }
+                            });
+                            
+                            return entry;
+                        });
+                        
+                        // Add to entries array
+                        entries.push(...importedEntries);
+                        
+                        // Update the table
+                        updateTable();
+                        
+                        // Update status badge
+                        updateStatusBadge();
+                        
+                        // Auto-save if enabled
+                        const settings = JSON.parse(localStorage.getItem('excelFormSettings_' + FORM_STORAGE_KEY)) || {};
+                        if (settings.autoSave) {
+                            localStorage.setItem('entries_' + FORM_STORAGE_KEY, JSON.stringify(entries));
+                        }
+                        
+                        showNotification(`Successfully imported ${importedEntries.length} entries from ${file.name}`, 'success');
+                        
+                    } catch (error) {
+                        console.error('Error importing Excel file:', error);
+                        showNotification(`Error importing Excel file: ${error.message}`, 'error');
+                    }
+                };
+                
+                // Trigger file selection
+                input.click();
+                
+            } catch (error) {
+                console.error('Error setting up file input:', error);
+                showNotification(`Error: ${error.message}`, 'error');
+            }
+        }
+        
+        // Export data to Excel file
+        function exportToExcel() {
+            try {
+                if (entries.length === 0) {
+                    showNotification('No entries to export', 'warning');
+                    return;
+                }
+                
+                // Get settings
+                const settings = JSON.parse(localStorage.getItem('excelFormSettings_' + FORM_STORAGE_KEY)) || defaultSettings;
+                
+                // Get form settings to know which fields to export
+                const currentFormSettings = formSettings || loadFormSettings();
+                
+                if (!currentFormSettings || !currentFormSettings.tableColumns) {
+                    showNotification('Error: Form settings not found', 'error');
+                    return;
+                }
+                
+                // Get field definitions to understand field types
+                const fieldDefinitions = {};
+                if (currentFormSettings.fields && Array.isArray(currentFormSettings.fields)) {
+                    currentFormSettings.fields.forEach(field => {
+                        fieldDefinitions[field.id] = field;
+                    });
+                }
+                
+                // Prepare data based on the tableColumns in form settings
+                const exportData = entries.map(entry => {
+                    const rowData = {};
+                    
+                    // Add each field defined in tableColumns
+                    currentFormSettings.tableColumns.forEach(column => {
+                        const fieldId = column.field;
+                        const headerText = column.header;
+                        const fieldValue = entry[fieldId];
+                        const fieldDef = fieldDefinitions[fieldId];
+                        
+                        // Handle timestamp specially
+                        if (fieldId === 'timestamp') {
+                            rowData[headerText] = fieldValue ? new Date(fieldValue).toLocaleString() : '';
+                            return;
+                        }
+                        
+                        // If we don't have a value, use empty string
+                        if (fieldValue === undefined || fieldValue === null) {
+                            rowData[headerText] = '';
+                            return;
+                        }
+                        
+                        // Handle different field types
+                        if (Array.isArray(fieldValue)) {
+                            // For array values (like from checkboxes)
+                            rowData[headerText] = fieldValue.join(', ');
+                        } else if (fieldDef && fieldDef.type === 'date' && fieldValue) {
+                            // Format dates consistently
+                            try {
+                                rowData[headerText] = new Date(fieldValue).toLocaleDateString();
+                            } catch (e) {
+                                rowData[headerText] = fieldValue;
+                            }
+                        } else {
+                            // Default handling for all other types
+                            rowData[headerText] = fieldValue.toString();
+                        }
+                    });
+                    
+                    return rowData;
+                });
+                
+                // Create a new workbook
+                const wb = XLSX.utils.book_new();
+                
+                // Convert data to worksheet
+                const ws = XLSX.utils.json_to_sheet(exportData);
+                
+                // Add the worksheet to the workbook
+                XLSX.utils.book_append_sheet(wb, ws, 'Entries');
+                
+                // Generate Excel file
+                const excelBuffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+                const blob = new Blob([excelBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+                
+                // Create download link
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = settings.filename || 'entries.xlsx';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+                
+                showNotification(`${entries.length} entries exported to Excel`, 'success');
+                
+            } catch (error) {
+                console.error('Error exporting to Excel:', error);
+                showNotification(`Error exporting to Excel: ${error.message}`, 'error');
+            }
+        }
+        
+
+        
+
+        
+
+
+        // Add debug logs
+        console.log('Script loaded, adding event listeners');
+        
+        // Global variables for Excel file handling
+        let excelFileHandle = null;
+        let connectedWorkbook = null;
+        
+        // Connect to an existing spreadsheet
+        async function connectToSpreadsheet() {
+            try {
+                // Check if File System Access API is supported
+                if (!('showOpenFilePicker' in window)) {
+                    showNotification('Your browser does not support the File System Access API. Please use a modern browser like Chrome or Edge.', 'error');
+                    return;
+                }
+                
+                // Show file picker
+                const [fileHandle] = await window.showOpenFilePicker({
+                    types: [
+                        {
+                            description: 'Excel Files',
+                            accept: {
+                                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'],
+                                'application/vnd.ms-excel': ['.xls']
+                            }
+                        }
+                    ],
+                    multiple: false
+                });
+                
+                // Get file
+                const file = await fileHandle.getFile();
+                
+                // Read the file
+                const arrayBuffer = await file.arrayBuffer();
+                const data = new Uint8Array(arrayBuffer);
+                
+                // Parse the Excel file
+                const workbook = XLSX.read(data, { type: 'array' });
+                
+                if (!workbook.SheetNames || workbook.SheetNames.length === 0) {
+                    throw new Error('No sheets found in the Excel file');
+                }
+                
+                // Store the file handle and workbook
+                excelFileHandle = fileHandle;
+                connectedWorkbook = workbook;
+                
+                // Load data from the workbook
+                await loadDataFromWorkbook();
+                
+                // Update the UI
+                updateSpreadsheetStatus();
+                
+                showNotification(`Connected to spreadsheet: ${file.name}`, 'success');
+                
+            } catch (error) {
+                // Don't show error notification if user simply canceled the file picker
+                if (error.name === 'AbortError' || error.message.includes('user aborted')) {
+                    console.log('User canceled file selection');
+                    return;
+                }
+                
+                console.error('Error connecting to spreadsheet:', error);
+                showNotification(`Error connecting to spreadsheet: ${error.message}`, 'error');
+            }
+        }
+        
+        // Load data from the connected workbook
+        async function loadDataFromWorkbook() {
+            if (!connectedWorkbook) return;
+            
+            try {
+                const entriesSheet = connectedWorkbook.Sheets['Entries'] || connectedWorkbook.Sheets[connectedWorkbook.SheetNames[0]];
+                const firstSheet = entriesSheet;
+                
+                // Convert to JSON
+                const jsonData = XLSX.utils.sheet_to_json(firstSheet);
+                
+                if (jsonData.length === 0) {
+                    showNotification('No data found in the connected spreadsheet', 'warning');
+                    return;
+                }
+                
+                // Get form settings to know field structure
+                const currentFormSettings = formSettings || loadFormSettings();
+                
+                if (!currentFormSettings || !currentFormSettings.tableColumns || !currentFormSettings.fields) {
+                    showNotification('Error: Form settings not found or incomplete', 'error');
+                    return;
+                }
+                
+                // Create a mapping of header text to field IDs
+                const headerToFieldMap = {};
+                currentFormSettings.tableColumns.forEach(column => {
+                    headerToFieldMap[column.header.toLowerCase()] = column.field;
+                });
+                
+                // Create a mapping of field types
+                const fieldTypes = {};
+                currentFormSettings.fields.forEach(field => {
+                    fieldTypes[field.id] = field.type;
+                });
+                
+                // Ask user if they want to replace or append
+                let action = 'replace';
+                if (entries.length > 0) {
+                    action = confirm('Do you want to replace existing entries? Click OK to replace, or Cancel to append.') ? 'replace' : 'append';
+                }
+                
+                if (action === 'replace') {
+                    entries = [];
+                }
+                
+                // Process the data
+                const importedEntries = jsonData.map(row => {
+                    // Create a new entry object
+                    const entry = {
+                        timestamp: new Date().toISOString()
+                    };
+                    
+                    // Map each column from the Excel file to the appropriate field
+                    Object.keys(row).forEach(excelHeader => {
+                        // Try to find the corresponding field ID for this header
+                        const fieldId = findMatchingFieldId(excelHeader, headerToFieldMap);
+                        if (!fieldId) return; // Skip if no matching field
+                        
+                        let value = row[excelHeader];
+                        
+                        // Process value based on field type
+                        if (fieldId === 'timestamp' && value) {
+                            try {
+                                const date = new Date(value);
+                                if (!isNaN(date.getTime())) {
+                                    entry.timestamp = date.toISOString();
+                                }
+                            } catch (e) {}
+                        } else if (fieldTypes[fieldId] === 'checkbox' && typeof value === 'string') {
+                            // Convert comma-separated string to array for checkbox fields
+                            entry[fieldId] = value.split(',').map(item => item.trim()).filter(item => item);
+                        } else {
+                            entry[fieldId] = value;
+                        }
+                    });
+                    
+                    return entry;
+                });
+                
+                // Add to entries array
+                entries.push(...importedEntries);
+                
+                // Update the table
+                updateTable();
+                
+                // Update status badge
+                updateStatusBadge();
+                
+                showNotification(`Successfully loaded ${importedEntries.length} entries from spreadsheet`, 'success');
+                
+            } catch (error) {
+                console.error('Error loading data from workbook:', error);
+                showNotification(`Error loading data: ${error.message}`, 'error');
+            }
+        }
+        
+        // Helper function to find a matching field ID from an Excel header
+        function findMatchingFieldId(excelHeader, headerToFieldMap) {
+            // Only do exact match (case insensitive)
+            const headerLower = excelHeader.toLowerCase();
+            if (headerToFieldMap[headerLower]) {
+                return headerToFieldMap[headerLower];
+            }
+            
+            // No match found
+            return null;
+        }
+        
+        // Disconnect from the current spreadsheet
+        function disconnectSpreadsheet() {
+            if (excelFileHandle) {
+                excelFileHandle = null;
+                connectedWorkbook = null;
+                entries = []; // Clear all entries when disconnecting
+                updateTable();
+                updateSpreadsheetStatus();
+                showNotification('Disconnected from spreadsheet', 'info');
+            }
+        }
+        
+        // Update the spreadsheet status indicator
+        function updateSpreadsheetStatus() {
+            const statusBadge = document.getElementById('spreadsheet-status');
+            const connectBtn = document.getElementById('connect-btn');
+            const fileLocationContainer = document.getElementById('file-location-container');
+            const fileLocationPath = document.getElementById('file-location-path');
+            
+            if (excelFileHandle) {
+                // Update status badge
+                statusBadge.textContent = 'Подключено';
+                statusBadge.classList.remove('badge-outline');
+                statusBadge.classList.add('badge-success');
+                
+                // Show file location
+                fileLocationContainer.classList.remove('hidden');
+                fileLocationPath.textContent = excelFileHandle.name;
+                
+                // Update connect button to show disconnect
+                if (connectBtn) {
+                    connectBtn.textContent = 'Disconnect';
+                    connectBtn.classList.remove('btn-outline');
+                    connectBtn.classList.add('btn-error');
+                    connectBtn.onclick = disconnectSpreadsheet;
+                }
+            } else {
+                // Update status badge
+                statusBadge.textContent = 'Нет подключения';
+                statusBadge.classList.add('badge-outline');
+                statusBadge.classList.remove('badge-success');
+                
+                // Hide file location
+                fileLocationContainer.classList.add('hidden');
+                fileLocationPath.textContent = 'Not selected';
+                
+                // Update connect button
+                if (connectBtn) {
+                    connectBtn.textContent = 'Установить подключение';
+                    connectBtn.classList.add('btn-outline');
+                    connectBtn.classList.remove('btn-error');
+                    connectBtn.classList.add('btn-primary');
+                    connectBtn.onclick = connectToSpreadsheet;
+                }
+            }    
+        }
+        
+        // Save entries to the connected Excel file
+        async function saveEntriesToExcel() {
+            if (!excelFileHandle) {
+                showNotification('No spreadsheet connected. Please connect a spreadsheet first.', 'warning');
+                return false;
+            }
+            
+            try {
+                // Get form settings to know which fields to export
+                const currentFormSettings = formSettings || loadFormSettings();
+                
+                // If no form settings are found, try to create a basic structure from the entries
+                if (!currentFormSettings || !currentFormSettings.tableColumns) {
+                    console.log('No form settings found, creating basic structure from entries');
+                    
+                    // If we have entries, create a basic structure
+                    if (entries.length > 0) {
+                        const firstEntry = entries[0];
+                        const basicColumns = Object.keys(firstEntry).map(key => {
+                            return {
+                                field: key,
+                                header: key.charAt(0).toUpperCase() + key.slice(1)
+                            };
+                        });
+                        
+                        // Read existing workbook to preserve other sheets
+                        let wb;
+                        try {
+                            const file = await excelFileHandle.getFile();
+                            const arrayBuffer = await file.arrayBuffer();
+                            const data = new Uint8Array(arrayBuffer);
+                            wb = XLSX.read(data, { type: 'array' });
+                            
+                            // Remove existing 'Entries' sheet if it exists (we'll replace it)
+                            const entriesSheetIndex = wb.SheetNames.indexOf('Entries');
+                            if (entriesSheetIndex > -1) {
+                                wb.SheetNames.splice(entriesSheetIndex, 1);
+                                delete wb.Sheets['Entries'];
+                            }
+                        } catch (e) {
+                            // If we can't read the existing file, create a new workbook
+                            console.log('Creating new workbook as existing file could not be read:', e);
+                            wb = XLSX.utils.book_new();
+                        }
+                        
+                        // Create a basic worksheet from all entries
+                        const ws = XLSX.utils.json_to_sheet(entries);
+                        XLSX.utils.book_append_sheet(wb, ws, 'Entries');
+                        
+                        // Generate Excel file
+                        const excelBuffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+                        const blob = new Blob([excelBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+                        
+                        // Get writable stream
+                        const writable = await excelFileHandle.createWritable();
+                        
+                        // Write the file
+                        await writable.write(blob);
+                        await writable.close();
+                        
+                        showNotification(`${entries.length} entries saved to connected spreadsheet`, 'success');
+                        return true;
+                    } else {
+                        showNotification('No entries to save', 'warning');
+                        return false;
+                    }
+                }
+                
+                // Get field definitions to understand field types
+                const fieldDefinitions = {};
+                if (currentFormSettings.fields && Array.isArray(currentFormSettings.fields)) {
+                    currentFormSettings.fields.forEach(field => {
+                        fieldDefinitions[field.id] = field;
+                    });
+                }
+                
+                // Prepare data based on the tableColumns in form settings
+                const exportData = entries.map(entry => {
+                    const rowData = {};
+                    
+                    // Add each field defined in tableColumns
+                    currentFormSettings.tableColumns.forEach(column => {
+                        const fieldId = column.field;
+                        const headerText = column.header || fieldId;
+                        const fieldValue = entry[fieldId];
+                        const fieldDef = fieldDefinitions[fieldId];
+                        
+                        // Handle timestamp specially
+                        if (fieldId === 'timestamp') {
+                            rowData[headerText] = fieldValue ? new Date(fieldValue).toLocaleString() : '';
+                            return;
+                        }
+                        
+                        // If we don't have a value, use empty string
+                        if (fieldValue === undefined || fieldValue === null) {
+                            rowData[headerText] = '';
+                            return;
+                        }
+                        
+                        // Handle different field types
+                        if (Array.isArray(fieldValue)) {
+                            // For array values (like from checkboxes)
+                            rowData[headerText] = fieldValue.join(', ');
+                        } else if (fieldDef && fieldDef.type === 'date' && fieldValue) {
+                            // Format dates consistently
+                            try {
+                                rowData[headerText] = new Date(fieldValue).toLocaleDateString();
+                            } catch (e) {
+                                rowData[headerText] = fieldValue;
+                            }
+                        } else {
+                            // Default handling for all other types
+                            rowData[headerText] = fieldValue.toString();
+                        }
+                    });
+                    
+                    return rowData;
+                });
+                
+                // Read existing workbook to preserve other sheets
+                let wb;
+                try {
+                    const file = await excelFileHandle.getFile();
+                    const arrayBuffer = await file.arrayBuffer();
+                    const data = new Uint8Array(arrayBuffer);
+                    wb = XLSX.read(data, { type: 'array' });
+                    
+                    // Remove existing 'Entries' sheet if it exists (we'll replace it)
+                    const entriesSheetIndex = wb.SheetNames.indexOf('Entries');
+                    if (entriesSheetIndex > -1) {
+                        wb.SheetNames.splice(entriesSheetIndex, 1);
+                        delete wb.Sheets['Entries'];
+                    }
+                } catch (e) {
+                    // If we can't read the existing file, create a new workbook
+                    console.log('Creating new workbook as existing file could not be read:', e);
+                    wb = XLSX.utils.book_new();
+                }
+                
+                // Convert data to worksheet
+                const ws = XLSX.utils.json_to_sheet(exportData.length > 0 ? exportData : [{}]);
+                
+                // Add the worksheet to the workbook
+                XLSX.utils.book_append_sheet(wb, ws, 'Entries');
+                
+                // Generate Excel file
+                const excelBuffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+                const blob = new Blob([excelBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+                
+                // Get writable stream
+                const writable = await excelFileHandle.createWritable();
+                
+                // Write the file
+                await writable.write(blob);
+                await writable.close();
+                
+                showNotification(`${entries.length} entries saved to connected spreadsheet`, 'success');
+                return true;
+                
+            } catch (error) {
+                console.error('Error saving to Excel:', error);
+                showNotification(`Error saving to Excel: ${error.message}`, 'error');
+                return false;
+            }
+        }
+        
+        // Create a new Excel file
+        async function createNewExcelFile() {
+            try {
+                // Check if File System Access API is supported
+                if (!('showSaveFilePicker' in window)) {
+                    showNotification('Your browser does not support the File System Access API. Please use a modern browser like Chrome or Edge.', 'error');
+                    return;
+                }
+                
+                // Show save file picker
+                const fileHandle = await window.showSaveFilePicker({
+                    types: [{
+                        description: 'Excel Files',
+                        accept: {
+                            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx']
+                        }
+                    }],
+                    suggestedName: 'entries.xlsx'
+                });
+                
+                // Store the file handle
+                excelFileHandle = fileHandle;
+                
+                // Create an empty workbook
+                connectedWorkbook = XLSX.utils.book_new();
+                
+                // Save the current entries to the new Excel file
+                await saveEntriesToExcel();
+                
+                // Update the UI
+                updateSpreadsheetStatus();
+                
+                showNotification(`Created new spreadsheet: ${fileHandle.name}`, 'success');
+                return true;
+                
+            } catch (error) {
+                // Don't show error notification if user simply canceled the file picker
+                if (error.name === 'AbortError' || error.message.includes('user aborted')) {
+                    console.log('User canceled file creation');
+                    return false;
+                }
+                
+                console.error('Error creating new Excel file:', error);
+                showNotification(`Error creating new Excel file: ${error.message}`, 'error');
+                return false;
+            }
+        }
+        
+        // Override the add, update, and delete functions to save to Excel
+        const originalAddEntry = addEntry;
+        addEntry = async function() {
+            // Validate required fields
+            let isValid = true;
+            
+            // Check all required fields
+            if (formSettings && formSettings.fields) {
+                // Validate based on dynamic form fields
+                getAllFields(formSettings).forEach(field => {
+                    if (field.required) {
+                        const fieldElement = document.getElementById(field.id);
+                        if (fieldElement) {
+                            if (field.type === 'text' || field.type === 'email' || field.type === 'tel' || 
+                                field.type === 'date' || field.type === 'number' || field.type === 'textarea') {
+                                if (!fieldElement.value.trim()) {
+                                    isValid = false;
+                                    fieldElement.classList.add('input-error');
+                                    
+                                    // Show error message if available
+                                    const errorElement = document.getElementById(`${field.id}-error`);
+                                    if (errorElement) {
+                                        errorElement.textContent = `${field.label} is required`;
+                                        errorElement.classList.remove('hidden');
+                                    }
+                                }
+                            } else if (field.type === 'select') {
+                                if (!fieldElement.value) {
+                                    isValid = false;
+                                    fieldElement.classList.add('input-error');
+                                }
+                            } else if (field.type === 'radio') {
+                                const checkedRadio = document.querySelector(`input[name="${field.id}"]:checked`);
+                                if (!checkedRadio) {
+                                    isValid = false;
+                                }
+                            }
+                        }
+                    }
+                });
+            } else {
+                // No form settings available, but we'll still validate any required fields
+                const formElements = document.querySelectorAll('#entry-form input, #entry-form select, #entry-form textarea');
+                
+                formElements.forEach(element => {
+                    if (element.required && !element.value.trim()) {
+                        element.classList.add('input-error');
+                        
+                        // Show error message if available
+                        const errorElement = document.getElementById(`${element.id}-error`);
+                        if (errorElement) {
+                            errorElement.textContent = `This field is required`;
+                            errorElement.classList.remove('hidden');
+                        }
+                        
+                        isValid = false;
+                    } else if (element.type === 'email' && element.value.trim() && !validateEmail(element)) {
+                        isValid = false;
+                    }
+                });
+            }
+            
+            // If validation fails, stop here
+            if (!isValid) {
+                showNotification('Please fill in all required fields', 'error');
+                return;
+            }
+            
+            // If not connected, force Excel file creation first
+            if (!excelFileHandle) {
+                showNotification('Please select where to save your Excel file', 'info');
+                const success = await createNewExcelFile();
+                if (!success) {
+                    // If user cancels file creation, don't add the entry
+                    return;
+                }
+            }
+            
+            // Get form data
+            const formData = getFormData();
+            
+            // Add timestamp if not present
+            if (!formData.timestamp) {
+                formData.timestamp = new Date().toISOString();
+            }
+            
+            // Add to entries array
+            entries.push(formData);
+            
+            // Update the table
+            updateTable();
+            
+            // Clear the form
+            clearForm();
+            
+            // Update status badge
+            updateStatusBadge();
+            
+            // Save to Excel
+            await saveEntriesToExcel();
+            
+            // Show success message
+            showNotification('Entry added successfully', 'success');
+        };
+        
+        const originalUpdateEntry = updateEntry;
+        updateEntry = async function(index) {
+            // Call the original function
+            originalUpdateEntry(index);
+            
+            // Save to Excel if connected
+            if (excelFileHandle) {
+                await saveEntriesToExcel();
+            }
+        };
+        
+        const originalDeleteEntry = deleteEntry;
+        deleteEntry = async function(index) {
+            // Call the original function
+            originalDeleteEntry(index);
+            
+            // Save to Excel if connected
+            if (excelFileHandle) {
+                await saveEntriesToExcel();
+            }
+        };
+        
+        const originalClearAllEntries = clearAllEntries;
+        clearAllEntries = async function() {
+            // Call the original function
+            await originalClearAllEntries();
+            
+            // Save to Excel if connected
+            if (excelFileHandle) {
+                await saveEntriesToExcel();
+            }
+        };
+        
+        // Initialize the app
+        document.addEventListener('DOMContentLoaded', () => {
+            console.log('DOM fully loaded');
+            
+            // Check if File System Access API is supported
+            if (!('showOpenFilePicker' in window)) {
+                console.log('File System Access API not supported, using download fallback');
+            }
+            
+            // Update spreadsheet status
+            updateSpreadsheetStatus();
+        });
+    </script>
+    
+    <!-- Version Management Script -->
+    <script>
+        // Application version - update this single variable when making changes
+        const APP_VERSION = '2.1';
+        
+        // Update version display in the footer when the page loads
+        document.addEventListener('DOMContentLoaded', () => {
+            const versionDisplay = document.getElementById('version-display');
+            if (versionDisplay) {
+                versionDisplay.textContent = `v${APP_VERSION}`;
+            }
+        });
+    </script>
+</body>
+</html>
